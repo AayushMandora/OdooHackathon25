@@ -9,10 +9,16 @@ const registerUser = [
     upload.single("profileImage"),
     async (req, res) => {
         try {
-            const payload = req.body;
+            const payload = { ...req.body };
             const profileImage = req.file ? req.file.path : null;
 
-            const hashedPassword = await bcrypt.hash(password, 10);
+            const existingUser = await User.findOne({ email: payload.email });
+
+            if (existingUser) {
+                return res.status(400).json({ message: "User already exists" });
+            }
+
+            const hashedPassword = await bcrypt.hash(payload.password, 10);
             payload.password = hashedPassword;
             payload.profileImage = profileImage;
 
@@ -88,6 +94,10 @@ const getUsers = async (req, res) => {
             query.isDeleted = false;
         }
 
+        if (req.user.role === "user" && req.user.id) {
+            query._id = { $ne: req.user.id };
+        }
+
         const totalUsers = await User.countDocuments(query);
         const totalPages = Math.ceil(totalUsers / limit);
 
@@ -111,6 +121,46 @@ const getUsers = async (req, res) => {
         }));
 
         res.status(200).json({ message: "Users fetched successfully", users, totalPages, totalUsers });
+    } catch (error) {
+        res.status(500).json({ message: "Internal server error", error: error.message });
+    }
+}
+
+const getUserWithoutAuth = async (req, res) => {
+    try {
+        const { page = 1, limit = 10, search = "" } = req.query;
+        const query = {
+            $or: [
+                { name: { $regex: search, $options: "i" } },
+                { email: { $regex: search, $options: "i" } },
+                { skillsOffered: { $regex: search, $options: "i" } },
+                { skillsWanted: { $regex: search, $options: "i" } },
+            ]
+        }
+        const totalUsers = await User.countDocuments(query);
+        const totalPages = Math.ceil(totalUsers / limit);
+
+        let users = await User.find(query)
+            .select("-password")
+            .skip((page - 1) * limit)
+            .limit(limit);
+
+        users = users.map(user => {
+            const profileImage = user.profileImage ? generateImageUrl(user.profileImage) : null;
+            user.profileImage = profileImage;
+            return user;
+        });
+
+        //  add average rating to each user
+        users = await Promise.all(users.map(async user => {
+            const feedbacks = await Feedback.find({ toUser: user._id });
+            const rating = feedbacks.reduce((acc, feedback) => acc + feedback.rating, 0) / feedbacks.length;
+            user.rating = rating || 0;
+            return user;
+        }));
+
+        res.status(200).json({ message: "Users fetched successfully", users, totalPages, totalUsers });
+
     } catch (error) {
         res.status(500).json({ message: "Internal server error", error: error.message });
     }
@@ -204,4 +254,5 @@ module.exports = {
     getUserById,
     updateUser,
     blockUser,
+    getUserWithoutAuth
 }
