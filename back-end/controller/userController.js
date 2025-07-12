@@ -102,6 +102,14 @@ const getUsers = async (req, res) => {
             return user;
         });
 
+        //  add average rating to each user
+        users = await Promise.all(users.map(async user => {
+            const feedbacks = await Feedback.find({ toUser: user._id });
+            const rating = feedbacks.reduce((acc, feedback) => acc + feedback.rating, 0) / feedbacks.length;
+            user.rating = rating || 0;
+            return user;
+        }));
+
         res.status(200).json({ message: "Users fetched successfully", users, totalPages, totalUsers });
     } catch (error) {
         res.status(500).json({ message: "Internal server error", error: error.message });
