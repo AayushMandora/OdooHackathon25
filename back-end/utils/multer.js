@@ -30,3 +30,7 @@ const upload = multer({
     fileFilter: fileFilter,
     limits: limits
 });
+
+module.exports = {
+    upload
+}
